@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prediksi Konsentrasi CO Udara (Per Jam) - LSTM</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="main-container">
+            <div class="header">
+                <h1><i class="fas fa-wind"></i> Prediksi Konsentrasi CO Udara (Per Jam)</h1>
+                <p>Model LSTM untuk peramalan CO(GT) berbasis data sensor multivariat</p>
+            </div>
+
+            <!-- Feature Overview -->
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-thermometer-half"></i></div>
+                    <h5>Temperature</h5>
+                    <p>Environmental temperature in °C</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-tint"></i></div>
+                    <h5>Humidity</h5>
+                    <p>Relative humidity percentage</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-smog"></i></div>
+                    <h5>NOx Levels</h5>
+                    <p>Nitrogen oxides concentration</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-cloud"></i></div>
+                    <h5>Absolute Humidity</h5>
+                    <p>Absolute humidity measurement</p>
+                </div>
+            </div>
+
+            <!-- Prediction Form -->
+            <div class="form-container">
+                <h3 class="mb-4"><i class="fas fa-calculator"></i> CO Level Prediction</h3>
+                <form id="predictionForm">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="pt08_s1_co" class="form-label">PT08.S1(CO) - CO Sensor</label>
+                            <input type="number" class="form-control" id="pt08_s1_co" name="pt08_s1_co" 
+                                   placeholder="e.g. 1000.00 (use dot .)" step="0.01" min="0" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="nox_gt" class="form-label">NOx(GT) - Nitrogen Oxides</label>
+                            <input type="number" class="form-control" id="nox_gt" name="nox_gt" 
+                                   placeholder="e.g. 150.0 (use dot .)" step="0.01" min="0" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="no2_gt" class="form-label">NO2(GT) - Nitrogen Dioxide</label>
+                            <input type="number" class="form-control" id="no2_gt" name="no2_gt" 
+                                   placeholder="e.g. 100.0 (use dot .)" step="0.01" min="0" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="temperature" class="form-label">Temperature (°C)</label>
+                            <input type="number" class="form-control" id="temperature" name="temperature" 
+                                   placeholder="e.g. 15.0 (use dot .)" step="0.1" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="humidity" class="form-label">Relative Humidity (%)</label>
+                            <input type="number" class="form-control" id="humidity" name="humidity" 
+                                   placeholder="e.g. 50.0 (use dot .)" step="0.1" min="0" max="100" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="ah" class="form-label">Absolute Humidity</label>
+                            <input type="number" class="form-control" id="ah" name="ah" 
+                                   placeholder="e.g. 1.00 (use dot .)" step="0.01" min="0" required>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <button type="submit" class="btn btn-predict btn-lg">
+                            <i class="fas fa-magic"></i> Predict CO Level
+                        </button>
+                    </div>
+                </form>
+
+                <div class="loading" id="loading">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Making prediction...</p>
+                </div>
+
+                <div class="result-container" id="result">
+                    <h3><i class="fas fa-chart-line"></i> Prediction Result</h3>
+                    <div class="result-value" id="predictionValue">0.00</div>
+                    <p id="predictionMessage">mg/m³</p>
+                </div>
+            </div>
+
+            <!-- Charts and Analysis -->
+            <ul class="nav nav-tabs" id="chartTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="historical-tab" data-bs-toggle="tab" 
+                            data-bs-target="#historical" type="button" role="tab">
+                        <i class="fas fa-history"></i> Historical Data
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="performance-tab" data-bs-toggle="tab" 
+                            data-bs-target="#performance" type="button" role="tab">
+                        <i class="fas fa-chart-bar"></i> Model Performance
+                    </button>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="chartTabContent">
+                <div class="tab-pane fade show active" id="historical" role="tabpanel">
+                    <div class="chart-container">
+                        <h4><i class="fas fa-chart-line"></i> Historical Air Quality Data</h4>
+                        <div class="text-center">
+                            <button class="btn btn-outline-primary" onclick="loadHistoricalData()">
+                                <i class="fas fa-sync"></i> Load Historical Data
+                            </button>
+                        </div>
+                        <div id="historicalChart" class="mt-3"></div>
+                    </div>
+                </div>
+
+                <div class="tab-pane fade" id="performance" role="tabpanel">
+                    <div class="chart-container">
+                        <h4><i class="fas fa-chart-bar"></i> Model Performance Analysis</h4>
+                        <div class="text-center">
+                            <button class="btn btn-outline-primary" onclick="loadModelPerformance()">
+                                <i class="fas fa-chart-line"></i> Load Performance Analysis
+                            </button>
+                        </div>
+                        <div id="performanceChart" class="mt-3"></div>
+                        <div id="performanceMetrics" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Form submission
+        document.getElementById('predictionForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Read and normalize values (comma -> dot), basic validation
+            const normalize = v => (v || '').toString().replace(',', '.');
+            const valOrNaN = v => parseFloat(normalize(v));
+
+            const pt08 = valOrNaN(document.getElementById('pt08_s1_co').value);
+            const nox  = valOrNaN(document.getElementById('nox_gt').value);
+            const no2  = valOrNaN(document.getElementById('no2_gt').value);
+            const temp = valOrNaN(document.getElementById('temperature').value);
+            const rh   = valOrNaN(document.getElementById('humidity').value);
+            const ah   = valOrNaN(document.getElementById('ah').value);
+
+            // Range checks
+            if ([pt08, nox, no2, temp, rh, ah].some(x => Number.isNaN(x))) {
+                alert('Please enter valid numeric values using dot (.) as decimal separator.');
+                return;
+            }
+            if (pt08 < 0 || nox < 0 || no2 < 0 || rh < 0 || rh > 100 || ah < 0) {
+                alert('Values out of range. Ensure NOx/NO2/PT08/AH >= 0 and RH between 0-100%.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('pt08_s1_co', pt08.toString());
+            formData.append('nox_gt', nox.toString());
+            formData.append('no2_gt', no2.toString());
+            formData.append('temperature', temp.toString());
+            formData.append('humidity', rh.toString());
+            formData.append('ah', ah.toString());
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+            
+            // Show loading
+            loading.style.display = 'block';
+            result.style.display = 'none';
+            
+            fetch('/predict', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                
+                if (data.success) {
+                    document.getElementById('predictionValue').textContent = data.prediction;
+                    document.getElementById('predictionMessage').textContent = data.message;
+                    result.style.display = 'block';
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                loading.style.display = 'none';
+                alert('Error: ' + error);
+            });
+        });
+
+        // Load historical data
+        function loadHistoricalData() {
+            const chartContainer = document.getElementById('historicalChart');
+            chartContainer.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"></div><p>Loading historical data...</p></div>';
+            
+            fetch('/historical_data')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    chartContainer.innerHTML = `<img src="data:image/png;base64,${data.image}" class="img-fluid" alt="Historical Data Chart">`;
+                } else {
+                    chartContainer.innerHTML = `<div class="alert alert-danger">Error: ${data.error}</div>`;
+                }
+            })
+            .catch(error => {
+                chartContainer.innerHTML = `<div class="alert alert-danger">Error: ${error}</div>`;
+            });
+        }
+
+        // Load model performance
+        function loadModelPerformance() {
+            const chartContainer = document.getElementById('performanceChart');
+            const metricsContainer = document.getElementById('performanceMetrics');
+            
+            chartContainer.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"></div><p>Loading performance analysis...</p></div>';
+            
+            fetch('/model_performance')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    chartContainer.innerHTML = `<img src="data:image/png;base64,${data.image}" class="img-fluid" alt="Performance Chart">`;
+                    
+                    if (data.metrics) {
+                        metricsContainer.innerHTML = `
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-body text-center">
+                                            <h5 class="card-title">RMSE</h5>
+                                            <h3 class="text-primary">${data.metrics.rmse}</h3>
+                                            <p class="card-text">Root Mean Square Error</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-body text-center">
+                                            <h5 class="card-title">MAE</h5>
+                                            <h3 class="text-success">${data.metrics.mae}</h3>
+                                            <p class="card-text">Mean Absolute Error</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                } else {
+                    chartContainer.innerHTML = `<div class="alert alert-danger">Error: ${data.error}</div>`;
+                }
+            })
+            .catch(error => {
+                chartContainer.innerHTML = `<div class="alert alert-danger">Error: ${error}</div>`;
+            });
+        }
+
+        // Set default values for demonstration
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('pt08_s1_co').value = '1000';
+            document.getElementById('nox_gt').value = '150';
+            document.getElementById('no2_gt').value = '100';
+            document.getElementById('temperature').value = '15.0';
+            document.getElementById('humidity').value = '50.0';
+            document.getElementById('ah').value = '1.0';
+        });
+    </script>
+</body>
+</html>
